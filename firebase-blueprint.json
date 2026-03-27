@@ -1,0 +1,127 @@
+{
+  "entities": {
+    "User": {
+      "title": "User",
+      "description": "System user with role-based access",
+      "type": "object",
+      "properties": {
+        "id": { "type": "string" },
+        "name": { "type": "string" },
+        "email": { "type": "string" },
+        "isEmailConfirmed": { "type": "boolean" },
+        "isApproved": { "type": "boolean" },
+        "role": { "type": "string", "enum": ["admin", "user"] },
+        "createdAt": { "type": "string", "format": "date-time" }
+      },
+      "required": ["id", "name", "email", "role", "isApproved"]
+    },
+    "InventoryItem": {
+      "title": "Inventory Item",
+      "description": "A batch of chemical material",
+      "type": "object",
+      "properties": {
+        "batchNo": { "type": "string" },
+        "chemicalName": { "type": "string" },
+        "vendorName": { "type": "string" },
+        "vendorQualification": { "type": "string" },
+        "quantity": { "type": "number" },
+        "unit": { "type": "string" },
+        "description": { "type": "string", "enum": ["Solid", "Liquid"] },
+        "status": { "type": "string", "enum": ["Quarantine", "Approved", "Rejected"] },
+        "statusNotes": { "type": "string" },
+        "dateOfManufacturing": { "type": "string" },
+        "dateOfAnalysis": { "type": "string" },
+        "dateOfRetest": { "type": "string" },
+        "dateOfExpiry": { "type": "string" },
+        "transactions": { "type": "array", "items": { "$ref": "Transaction" } },
+        "statusHistory": { "type": "array", "items": { "$ref": "StatusLog" } },
+        "analysisHistory": { "type": "array", "items": { "$ref": "AnalysisRecord" } }
+      },
+      "required": ["batchNo", "chemicalName", "quantity", "status"]
+    },
+    "Transaction": {
+      "title": "Transaction",
+      "type": "object",
+      "properties": {
+        "id": { "type": "string" },
+        "batchNo": { "type": "string" },
+        "amount": { "type": "number" },
+        "purpose": { "type": "string" },
+        "date": { "type": "string" },
+        "requestId": { "type": "string" }
+      }
+    },
+    "StatusLog": {
+      "title": "Status Log",
+      "type": "object",
+      "properties": {
+        "id": { "type": "string" },
+        "from": { "type": "string" },
+        "to": { "type": "string" },
+        "date": { "type": "string" },
+        "reason": { "type": "string" },
+        "changedBy": { "type": "string" }
+      }
+    },
+    "AnalysisRecord": {
+      "title": "Analysis Record",
+      "type": "object",
+      "properties": {
+        "id": { "type": "string" },
+        "analysisDate": { "type": "string" },
+        "result": { "type": "string" },
+        "performedBy": { "type": "string" },
+        "nextRetestDate": { "type": "string" }
+      }
+    },
+    "MaterialRequest": {
+      "title": "Material Request",
+      "type": "object",
+      "properties": {
+        "id": { "type": "string" },
+        "type": { "type": "string", "enum": ["R&D", "QC", "Production"] },
+        "chemicalName": { "type": "string" },
+        "batchNo": { "type": "string" },
+        "vendorName": { "type": "string" },
+        "quantity": { "type": "number" },
+        "unit": { "type": "string" },
+        "requestedBy": { "type": "string" },
+        "acceptedBy": { "type": "string" },
+        "date": { "type": "string" },
+        "status": { "type": "string", "enum": ["Pending", "Approved", "Rejected"] },
+        "departmentNotes": { "type": "string" }
+      }
+    },
+    "AuditLog": {
+      "title": "Audit Log",
+      "type": "object",
+      "properties": {
+        "id": { "type": "string" },
+        "userId": { "type": "string" },
+        "userEmail": { "type": "string" },
+        "userName": { "type": "string" },
+        "action": { "type": "string" },
+        "details": { "type": "string" },
+        "timestamp": { "type": "string" }
+      }
+    }
+  },
+  "firestore": {
+    "/users/{userId}": {
+      "schema": "User",
+      "description": "User profiles"
+    },
+    "/inventory/{batchNo}": {
+      "schema": "InventoryItem",
+      "description": "Inventory batches"
+    },
+    "/requests/{requestId}": {
+      "schema": "MaterialRequest",
+      "description": "Material requisitions"
+    },
+    "/logs/{logId}": {
+      "schema": "AuditLog",
+      "description": "System audit trail"
+    }
+  }
+}

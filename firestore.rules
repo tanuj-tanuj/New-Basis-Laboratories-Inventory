@@ -1,0 +1,196 @@
+rules_version = '2';
+service cloud.firestore {
+  match /databases/{database}/documents {
+    // ===============================================================
+    // Assumed Data Model
+    // ===============================================================
+    //
+    // Collection: users
+    // Document ID: userId (from Auth)
+    // Fields:
+    //   - id: string (required) - unique user ID
+    //   - name: string (required) - user's display name
+    //   - email: string (required) - user's email address
+    //   - isEmailConfirmed: bool (required) - email verification status
+    //   - isApproved: bool (required) - admin approval status
+    //   - role: string (required, ['admin', 'user']) - user's role
+    //   - createdAt: string (required, ISO 8601) - creation timestamp
+    //
+    // Collection: inventory
+    // Document ID: batchNo
+    // Fields:
+    //   - batchNo: string (required) - unique batch number
+    //   - chemicalName: string (required) - name of the chemical
+    //   - vendorName: string (required) - name of the supplier
+    //   - quantity: number (required, >= 0) - current stock level
+    //   - status: string (required, ['Quarantine', 'Approved', 'Rejected']) - batch status
+    //   [Other optional fields: description, unit, dates, histories]
+    //
+    // Collection: requests
+    // Document ID: requestId
+    // Fields:
+    //   - id: string (required) - unique request ID
+    //   - type: string (required, ['R&D', 'QC', 'Production']) - department type
+    //   - batchNo: string (required) - batch being requested
+    //   - quantity: number (required, > 0) - amount requested
+    //   - status: string (required, ['Pending', 'Approved', 'Rejected']) - request status
+    //   - requestedBy: string (required) - name of requester
+    //   - date: string (required, ISO 8601) - request date
+    //
+    // Collection: logs
+    // Document ID: logId
+    // Fields:
+    //   - id: string (required) - unique log ID
+    //   - userId: string (required) - user who performed action
+    //   - action: string (required) - action type
+    //   - details: string (required) - description of action
+    //   - timestamp: string (required, ISO 8601) - when it happened
+    //
+    // ===============================================================
+
+    // ===============================================================
+    // Helper Functions
+    // ===============================================================
+    
+    function isAuthenticated() {
+      return request.auth != null;
+    }
+
+    function isOwner(userId) {
+      return isAuthenticated() && request.auth.uid == userId;
+    }
+
+    function isAdmin() {
+      return isAuthenticated() && 
+        (get(/databases/$(database)/documents/users/$(request.auth.uid)).data.role == 'admin' ||
+         (request.auth.token.email == "tanujr91@gmail.com" && request.auth.token.email_verified == true));
+    }
+
+    function hasRequiredFields(fields) {
+      return request.resource.data.keys().hasAll(fields);
+    }
+
+    function hasOnlyAllowedFields(fields) {
+      return request.resource.data.keys().hasOnly(fields);
+    }
+
+    function isValidEmail(email) {
+      return email is string && email.matches("^[a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\\.[a-zA-Z]{2,}$");
+    }
+
+    function isValidDateString(dateStr) {
+      return dateStr is string && dateStr.matches("^\\d{4}-\\d{2}-\\d{2}(T\\d{2}:\\d{2}:\\d{2}.*Z?)?$");
+    }
+
+    // ===============================================================
+    // Domain Validators
+    // ===============================================================
+
+    function isValidUser(data) {
+      return hasRequiredFields(['id', 'name', 'email', 'role', 'isApproved']) &&
+             data.id is string && data.id.size() > 0 &&
+             data.name is string && data.name.size() > 0 && data.name.size() < 100 &&
+             isValidEmail(data.email) &&
+             data.role in ['admin', 'user'] &&
+             data.isApproved is bool;
+    }
+
+    function isValidInventoryItem(data) {
+      return hasRequiredFields(['batchNo', 'chemicalName', 'quantity', 'status']) &&
+             data.batchNo is string && data.batchNo.size() > 0 && data.batchNo.size() < 50 &&
+             data.chemicalName is string && data.chemicalName.size() > 0 && data.chemicalName.size() < 200 &&
+             data.quantity is number && data.quantity >= 0 &&
+             data.status in ['Quarantine', 'Approved', 'Rejected'];
+    }
+
+    function isValidRequest(data) {
+      return hasRequiredFields(['id', 'type', 'batchNo', 'quantity', 'status', 'requestedBy', 'date']) &&
+             data.id is string && data.id.size() > 0 &&
+             data.type in ['R&D', 'QC', 'Production'] &&
+             data.batchNo is string &&
+             data.quantity is number && data.quantity > 0 &&
+             data.status in ['Pending', 'Approved', 'Rejected'] &&
+             data.requestedBy is string && data.requestedBy.size() > 0 &&
+             isValidDateString(data.date);
+    }
+
+    function isValidLog(data) {
+      return hasRequiredFields(['id', 'userId', 'action', 'details', 'timestamp']) &&
+             data.id is string &&
+             data.userId is string &&
+             data.action is string &&
+             data.details is string && data.details.size() < 1000 &&
+             isValidDateString(data.timestamp);
+    }
+
+    // ===============================================================
+    // Rules
+    // ===============================================================
+
+    // Default deny
+    match /{document=**} {
+      allow read, write: if false;
+    }
+
+    match /users/{userId} {
+      // Users can read their own profile. Admins can read all profiles.
+      allow read: if isOwner(userId) || isAdmin();
+      
+      // New users can create their profile as 'user' and not approved.
+      // Admins can create any profile.
+      allow create: if isAuthenticated() && isValidUser(request.resource.data) && 
+                    (
+                      (isOwner(userId) && request.resource.data.role == 'user' && request.resource.data.isApproved == false) ||
+                      isAdmin()
+                    );
+      
+      // Users can update their own name. Admins can update anything.
+      // Role and isApproved can only be changed by Admins.
+      allow update: if isAuthenticated() && isValidUser(request.resource.data) &&
+                    (
+                      (isOwner(userId) && 
+                       request.resource.data.role == resource.data.role && 
+                       request.resource.data.isApproved == resource.data.isApproved &&
+                       request.resource.data.email == resource.data.email) ||
+                      isAdmin()
+                    );
+      
+      // Only admins can delete users.
+      allow delete: if isAdmin();
+    }
+
+    match /inventory/{batchNo} {
+      // Authenticated users can read inventory.
+      allow read: if isAuthenticated();
+      
+      // Only admins can manage inventory.
+      allow create, update, delete: if isAdmin() && isValidInventoryItem(request.resource.data);
+    }
+
+    match /requests/{requestId} {
+      // Authenticated users can read requests.
+      allow read: if isAuthenticated();
+      
+      // Users can create requests.
+      allow create: if isAuthenticated() && isValidRequest(request.resource.data);
+      
+      // Admins can update requests (approve/reject).
+      // Users can potentially update their own pending requests (if implemented).
+      allow update: if isAuthenticated() && isValidRequest(request.resource.data) && 
+                    (isAdmin() || (request.resource.data.requestedBy == resource.data.requestedBy && resource.data.status == 'Pending'));
+      
+      allow delete: if isAdmin();
+    }
+
+    match /logs/{logId} {
+      // Only admins can read logs.
+      allow read: if isAdmin();
+      
+      // Any authenticated action can be logged.
+      allow create: if isAuthenticated() && isValidLog(request.resource.data);
+      
+      // Only super admin can clear logs (delete).
+      allow delete: if isAdmin() && request.auth.token.email == "tanujr91@gmail.com";
+    }
+  }
+}
